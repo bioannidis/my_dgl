@@ -255,7 +255,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
                                      num_of_ntype,
                                      node_feats,
                                      args.n_hidden,
-                                     dgl_sparse=args.dgl_sparse)
+                                     dgl_sparse=args.dgl_sparse,per_feat_name_embed=args.per_feat_name_embed)
 
     # create model
     # all model params are in device.
@@ -508,7 +508,13 @@ def main(args, devices):
         else:
             assert len(hg.nodes[ntype].data) == 1
             feat = hg.nodes[ntype].data.pop('feat')
-            node_feats.append(feat.share_memory_())
+            if ogb_dataset:
+                # this simulates the 2 different attributes
+                # TODO remove after development
+                feat = [feat[:, :63].share_memory_(), feat[:, 63:].share_memory_()]
+                node_feats.append(feat)
+            else:
+                node_feats.append(feat.share_memory_())
 
     # get target category id
     category_id = len(hg.ntypes)
@@ -630,6 +636,8 @@ def config():
             help='Use sparse embedding for node embeddings.')
     parser.add_argument('--node-feats', default=False, action='store_true',
             help='Whether use node features')
+    parser.add_argument('--per-feat-name-embed', default=False, action='store_true',
+            help='Whether apply per feature projection')
     parser.add_argument('--layer-norm', default=False, action='store_true',
             help='Use layer norm')
     parser.set_defaults(validation=True)

@@ -82,3 +82,21 @@ FB15k-237: Filtered-MRR 0.2044
 ```
 python3 link_predict.py -d FB15k-237 --gpu 0 --eval-protocol filtered
 ```
+
+### per feature embedding
+-d ml --testing --fanout 30,30 --batch-size 256 --n-hidden 32 --lr 0.01 --num-worker 4 --eval-batch-size 8 --low-mem --gpu 0 --dropout 0.7 --use-self-loop --n-bases 2 --n-epochs 30 --node-feats --dgl-sparse --sparse-lr 0.08
+Profiling
+0/1 Mean forward time: 0.013963
+0/1 Mean backward time: 0.009329
+Final Test Accuracy: 0.7544 | Test loss: 0.8676
+Train 10.822562456130981s, valid 6.5997700691223145s, test 9.914822578430176s
+
+-d ml --testing --fanout 30,30 --batch-size 256 --n-hidden 32 --lr 0.01 --num-worker 4 --eval-batch-size 8 --low-mem --gpu 0 --dropout 0.7 --use-self-loop --n-bases 2 --n-epochs 30 --node-feats --dgl-sparse --sparse-lr 0.08 --per-feat-name-embed
+Profiling
+0/1 Mean forward time: 0.014088
+0/1 Mean backward time: 0.010053
+Final Test Accuracy: 0.7602 | Test loss: 0.8804
+Train 10.941909074783325s, valid 6.555006265640259s, test 10.022008895874023s
+
+multigpu
+-d ml --testing --fanout 30,30 --batch-size 256 --n-hidden 32 --lr 0.01 --num-worker 4 --eval-batch-size 8 --low-mem --gpu 0,1,2,3 --dropout 0.7 --use-self-loop --n-bases 2 --n-epochs 30 --node-feats --dgl-sparse --sparse-lr 0.08 --per-feat-name-embed

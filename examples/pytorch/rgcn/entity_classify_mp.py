@@ -10,6 +10,8 @@ import argparse, gc
 import numpy as np
 import time
 import torch as th
+from dgl.data import save_graphs, load_graphs
+
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.multiprocessing as mp
@@ -426,7 +428,26 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
             # sync for test
             if n_gpus > 1:
                 th.distributed.barrier()
+    if True:
+        tstart = time.time()
+        if (queue is not None) or (proc_id == 0):
+            test_logits, test_seeds = evaluate(model, embed_layer, test_loader, node_feats)
+            if queue is not None:
+                queue.put((test_logits, test_seeds))
 
+            # gather evaluation result from multiple processes
+            if proc_id == 0:
+                test_loss, test_acc = collect_eval() if queue is not None else \
+                    (F.cross_entropy(test_logits, labels[test_seeds].cpu()).item(), \
+                     th.sum(test_logits.argmax(dim=1) == labels[test_seeds].cpu()).item() / len(test_seeds))
+                print("Test Accuracy: {:.4f} | Test loss: {:.4f}".format(test_acc, test_loss))
+                print()
+        tend = time.time()
+        test_time += (tend - tstart)
+
+        # sync for test
+        if n_gpus > 1:
+            th.distributed.barrier()
     print("{}/{} Mean forward time: {:4f}".format(proc_id, n_gpus,
                                                   np.mean(forward_time[len(forward_time) // 4:])))
     print("{}/{} Mean backward time: {:4f}".format(proc_id, n_gpus,
@@ -438,6 +459,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
 def main(args, devices):
     # load graph data
     ogb_dataset = False
+    ml_dataset =False
     if args.dataset == 'aifb':
         dataset = AIFBDataset()
     elif args.dataset == 'mutag':
@@ -446,6 +468,8 @@ def main(args, devices):
         dataset = BGSDataset()
     elif args.dataset == 'am':
         dataset = AMDataset()
+    elif args.dataset =='ml':
+        ml_dataset=True
     elif args.dataset == 'ogbn-mag':
         dataset = DglNodePropPredDataset(name=args.dataset)
         ogb_dataset = True
@@ -480,12 +504,22 @@ def main(args, devices):
 
     else:
         # Load from hetero-graph
-        hg = dataset[0]
+        if ml_dataset:
+            graphf = 'data/graph.bin'
+            g, _ = load_graphs(graphf)
+            print(g[0])
+            hg = g[0]
+        else:
+            hg = dataset[0]
 
         num_rels = len(hg.canonical_etypes)
         num_of_ntype = len(hg.ntypes)
-        category = dataset.predict_category
-        num_classes = dataset.num_classes
+        if ml_dataset:
+            category = 'user'
+            num_classes = 2
+        else:
+            category = dataset.predict_category
+            num_classes = dataset.num_classes
         train_mask = hg.nodes[category].data.pop('train_mask')
         test_mask = hg.nodes[category].data.pop('test_mask')
         labels = hg.nodes[category].data.pop('labels')
@@ -495,11 +529,17 @@ def main(args, devices):
         # AIFB, MUTAG, BGS and AM datasets do not provide validation set split.
         # Split train set into train and validation if args.validation is set
         # otherwise use train set as the validation set.
-        if args.validation:
-            val_idx = train_idx[:len(train_idx) // 5]
-            train_idx = train_idx[len(train_idx) // 5:]
+        if ml_dataset:
+            valid_mask = hg.nodes[category].data.pop('valid_mask')
+            val_idx = th.nonzero(valid_mask, as_tuple=False).squeeze()
+
         else:
-            val_idx = train_idx
+            if args.validation:
+                val_idx = train_idx[:len(train_idx) // 5]
+                train_idx = train_idx[len(train_idx) // 5:]
+            else:
+                val_idx = train_idx
+
 
     node_feats = []
     for ntype in hg.ntypes:
@@ -507,14 +547,21 @@ def main(args, devices):
             node_feats.append(hg.number_of_nodes(ntype))
         else:
             assert len(hg.nodes[ntype].data) == 1
-            feat = hg.nodes[ntype].data.pop('feat')
-            if ogb_dataset:
-                # this simulates the 2 different attributes
-                # TODO remove after development
-                feat = [feat[:, :63].share_memory_(), feat[:, 63:].share_memory_()]
-                node_feats.append(feat)
+            if ml_dataset:
+                if ntype=="user":
+                    feat = hg.nodes[ntype].data.pop('nf')
+                    feat = [feat[:, :10].share_memory_(),feat[:, 10:21].share_memory_(), feat[:,-1].unsqueeze(dim=1).share_memory_()]
+                    node_feats.append(feat)
             else:
-                node_feats.append(feat.share_memory_())
+                feat = hg.nodes[ntype].data.pop('feat')
+                if ogb_dataset:
+                    # this simulates the 2 different attributes
+                    # TODO remove after development
+                    feat = [feat[:, :64].share_memory_(), feat[:, 64:].share_memory_()]
+                    node_feats.append(feat)
+
+                else:
+                    node_feats.append(feat.share_memory_())
 
     # get target category id
     category_id = len(hg.ntypes)

@@ -18,7 +18,7 @@ from models import GCN
 device = None
 in_feats, n_classes = None, None
 epsilon = 1 - math.log(2)
-
+import csv
 
 def gen_model(args):
     if args.use_labels:
@@ -234,6 +234,14 @@ def main():
     # load data
     data = DglNodePropPredDataset(name="ogbn-arxiv")
     evaluator = Evaluator(name="ogbn-arxiv")
+
+    tsv_file = open("titleabs.tsv")
+    datafeat = csv.reader((line.replace('\0', '') for line in tsv_file), delimiter="\t")
+    next(datafeat)
+    text_feats={}
+    for row in datafeat:
+        if len(row)==3:
+            text_feats[ int(row[0]) ] = (row[1],row[2])
 
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx["train"], splitted_idx["valid"], splitted_idx["test"]

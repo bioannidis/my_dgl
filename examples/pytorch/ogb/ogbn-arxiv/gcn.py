@@ -238,10 +238,18 @@ def main():
     tsv_file = open("titleabs.tsv")
     datafeat = csv.reader((line.replace('\0', '') for line in tsv_file), delimiter="\t")
     next(datafeat)
+    tsv_map_file = open("dataset/ogbn_arxiv/mapping/nodeidx2paperid.csv")
+    map = csv.reader(tsv_map_file, delimiter=",")
+    map_feats={}
+    next(map)
+    for row in map:
+            map_feats[ int(row[1]) ] = int(row[0])
     text_feats={}
     for row in datafeat:
         if len(row)==3:
-            text_feats[ int(row[0]) ] = (row[1],row[2])
+            if int(row[0]) in map_feats:
+                text_feats[ map_feats[int(row[0])] ] = (row[1],row[2])
+
 
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx["train"], splitted_idx["valid"], splitted_idx["test"]
